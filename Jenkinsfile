@@ -115,16 +115,23 @@ pipeline {
                             throw err
                         }
                     }
-                    if (env.GIT_COMMIT) {
-                        env.VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
-                    } else {
-                        env.VERSION = "${env.BUILD_NUMBER}-latest"
-                    }
+
 
                     echo "========== CHECKOUT END =========="
                 }
             }
         }
+        stage('Set Version') {
+            steps {
+        script {
+            // Get latest short commit hash
+            def gitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+            env.VERSION = "${env.BUILD_NUMBER}-${gitHash}"
+            echo "VERSION set to: ${env.VERSION}"
+        }
+    }
+        }
+
         stage('Debug Workspace') {
             steps {
                 script {
@@ -282,20 +289,16 @@ pipeline {
 
 
         stage('Docker Build') {
-            steps {
-            script {
+    steps {
+        script {
             echo "========== DOCKER BUILD START =========="
             try {
                 sh """
                     which docker >/dev/null 2>&1 || { echo 'Docker is not installed'; exit 1; }
 
-                    echo "Exporting environment variables for docker-compose..."
-                    export VERSION=${env.VERSION}
-                    export DOCKERHUB_REPO=${env.DOCKERHUB_REPO}
-                    export CONTAINER_NAME=${env.APP_NAME}-container
-                    export HOST_PORT=80
-
                     echo "Building Docker image using docker-compose..."
+                    VERSION="${env.VERSION}" \
+                    DOCKERHUB_REPO="${env.DOCKERHUB_REPO}" \
                     docker compose -f ${env.COMPOSE_FILE} build --no-cache
 
                     echo "Tagging image for DockerHub..."
@@ -309,9 +312,10 @@ pipeline {
                 error("Stopping pipeline — Docker Build stage failed.")
             }
             echo "========== DOCKER BUILD END =========="
-                }
-            }
         }
+    }
+}
+
     
 
 
@@ -319,4 +323,5 @@ pipeline {
 
 
     }
+    
 }
