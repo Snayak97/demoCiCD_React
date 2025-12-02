@@ -1,10 +1,21 @@
+# version: "3.8"
+
+# services:
+#   react-app:
+#     build: .
+#     image: demoreact-app
+#     container_name: demoreact-app
+#     ports:
+#       - "5173:80"
+#     restart: unless-stopped
+
 version: "3.8"
 
 services:
   react-app:
     build: .
-    image: demoreact-app
-    container_name: demoreact-app
+    image: ${DOCKERHUB_REPO}:${VERSION}
+    container_name: ${CONTAINER_NAME}
     ports:
-      - "5173:80"
+      - "${HOST_PORT}:80"
     restart: unless-stopped

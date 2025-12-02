@@ -1,0 +1,311 @@
+pipeline {
+    agent any
+    environment {
+        COMPOSE_FILE = 'docker-compose.yml'
+        SONAR_HOME   = tool 'sonar'
+        GIT_URL      = "https://github.com/Snayak97/DemoCICD_react.git"
+        GIT_BRANCH   = "main"
+        VERSION      = "v1.0.0"
+        APP_NAME     = "demo_reactapp"
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+        ansiColor('xterm')
+    }
+
+    stages {
+        stage('Cleanup') {
+            steps {
+                script {
+                    echo "========== CLEANUP START =========="
+
+                    try {
+                        deleteDir()
+                        echo "Workspace cleaned"
+
+                        sh '''
+                          which docker || { echo "Docker not installed"; exit 1; }
+                          docker compose down -v || echo "No running containers"
+                        '''
+                    } catch (err) {
+                        echo "Cleanup failed: ${err}"
+                        error("Stopping pipeline — cleanup stage failed.")
+                    }
+
+                    echo "========== CLEANUP END =========="
+                }
+            }
+        }
+        stage('Checkout Code') {
+            steps {
+                script {
+                    echo "========== CHECKOUT START =========="
+
+                    retry(3) {
+                        try {
+                            checkout([
+                                $class: 'GitSCM',
+                                branches: [[name: "*/${GIT_BRANCH}"]],
+                                userRemoteConfigs: [[url: "${GIT_URL}"]]
+                            ])
+                            echo "Checkout successful"
+                        } catch (err) {
+                            echo "Git checkout failed: ${err}"
+                            echo "Retrying in 3 seconds..."
+                            sleep 3
+                            throw err
+                        }
+                    }
+
+                    echo "========== CHECKOUT END =========="
+                }
+            }
+        }
+        stage('Debug Workspace') {
+            steps {
+                script {
+                    echo "========== WORKSPACE DEBUG START =========="
+
+                    try {
+                        sh '''
+                          echo "---- Directory ----"
+                          pwd
+
+                          echo "---- Files ----"
+                          ls -la
+
+                          echo "---- Checking Required Files ----"
+                          cat index.html || echo "index.html not found"
+                          echo "---- Git Status ----"
+                          git status || echo "Not a git repo"
+                        '''
+                        echo "Workspace validation passed"
+                    } catch (err) {
+                        echo "Workspace validation failed: ${err}"
+                        error("Stopping pipeline — required files missing.")
+                    }
+
+                    echo "========== WORKSPACE DEBUG END =========="
+                }
+            }
+        }
+        stage('Install Dependencies') {
+            steps {
+        script {
+            echo "========== INSTALL DEPENDENCIES START =========="
+
+            try {
+                sh '''
+                  which node || { echo "Node.js not installed"; exit 1; }
+                  node -v
+                  npm -v
+                '''
+                sh '''
+                  npm ci --prefer-offline
+                '''
+
+                echo "Dependencies installed successfully (using npm ci --prefer-offline)"
+            } catch (err) {
+                echo "Dependency installation failed: ${err}"
+                error("Stopping pipeline — Install Dependencies failed.")
+            }
+
+            echo "========== INSTALL DEPENDENCIES END =========="
+        }
+    }
+        }
+        stage('Build React App') {
+            steps {
+        script {
+            echo "========== BUILD START =========="
+
+            try {
+                sh '''
+                  echo "Building React app..."
+                  npm run build
+                '''
+                echo "React app built successfully"
+            } catch (err) {
+                echo "Build failed: ${err}"
+                error("Stopping pipeline — Build React App failed.")
+            }
+
+            echo "========== BUILD END =========="
+        }
+    }
+        }
+        stage('SonarQube Analysis') {
+            steps {
+                echo "Starting SonarQube Analysis..."
+                script {
+                    retry(2) {
+                        withSonarQubeEnv("sonar") {
+                            try {
+                                sh """
+                                    ${SONAR_HOME}/bin/sonar-scanner \
+                                    -Dsonar.projectKey=${APP_NAME} \
+                                    -Dsonar.projectName=${APP_NAME} \
+                                    -Dsonar.sources=. 
+                                """
+                                echo "SonarQube analysis completed successfully."
+                            } catch (Exception err) {
+                                echo "SonarQube analysis failed: ${err}"
+                                error "SonarQube stage failed"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Quality Gate Check') {
+            steps {
+                timeout(time: 3, unit: 'MINUTES') {
+                    script {
+                        try {
+                            def qg = waitForQualityGate(abortPipeline: false)
+
+                            echo "Quality Gate Status: ${qg.status}"
+
+                            if (qg.status != 'OK') {
+                                echo "Quality Gate FAILED — Status: ${qg.status}"
+                                error "Pipeline stopped because Quality Gate failed: ${qg.status}"
+                            }
+
+                            echo "Quality Gate PASSED successfully."
+
+                        } catch (Exception err) {
+                            echo "Error while checking Quality Gate: ${err}"
+                            error "Quality Gate Check failed unexpectedly."
+                        }
+                    }
+                }
+            }
+        }
+       
+        stage('Docker Login') {
+            steps {
+                script {
+            echo "========== DOCKER LOGIN START =========="
+
+            try {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
+                                                 usernameVariable: 'DOCKERHUB_USER',
+                                                 passwordVariable: 'DOCKERHUB_PASS')]) {
+
+                    sh """
+                        echo "Checking Docker installation..."
+                        which docker >/dev/null 2>&1 || { echo 'Docker not installed'; exit 1; }
+
+                        echo "Logging into Docker Hub..."
+                        echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                    """
+
+                    echo "Docker login successful."
+                }
+            } catch (err) {
+                echo "Docker login failed: ${err}"
+                error("Stopping pipeline — Docker Login stage failed.")
+            }
+
+            echo "========== DOCKER LOGIN END =========="
+        }
+            }
+        }
+
+
+    
+    stage('Docker Build') {
+        steps {
+        script {
+            echo "========== DOCKER BUILD START =========="
+
+            try {
+                def DOCKERHUB_IMAGE = "snayak97/soumya1"
+
+                sh """
+                    echo "Checking Docker installation..."
+                    which docker >/dev/null 2>&1 || { echo 'Docker is not installed'; exit 1; }
+                    test -f ${COMPOSE_FILE} || { echo 'Missing compose file'; exit 1; }
+
+                    echo "Building Docker Image using docker-compose..."
+                    docker compose -f ${COMPOSE_FILE} build --no-cache
+
+                    echo "Tagging image for DockerHub..."
+                    docker tag demoreact-app:latest ${DOCKERHUB_IMAGE}:${VERSION}
+
+                    echo "Cleaning unused images..."
+                    docker image prune -f
+                """
+            } catch (err) {
+                echo "Docker build failed: ${err}"
+                error("Stopping pipeline — Docker Build stage failed.")
+            }
+
+            echo "========== DOCKER BUILD END =========="
+        }
+    }
+    }
+
+    stage('Check Repo Exists') {
+        steps {
+        script {
+            def repo = "snayak97/soumya1"
+
+            echo "Checking if Docker Hub repo exists: ${repo}"
+
+            def response = sh(script: """
+                curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/v2/repositories/${repo}/
+            """, returnStdout: true).trim()
+
+            if (response != "200") {
+                error "DockerHub repository ${repo} does NOT exist. Create it manually."
+            } else {
+                echo "DockerHub repository exists. Proceeding..."
+            }
+        }
+    }
+    }
+    stage('Docker Push') {
+    steps {
+        script {
+            def fullImage = "snayak97/soumya1:${VERSION}"
+
+            echo "Pushing image: ${fullImage}"
+
+            try {
+                sh "docker push ${fullImage}"
+            } catch (err) {
+                error("Docker push failed: ${err}")
+            }
+
+            echo "Docker push successful."
+        }
+    }
+}
+
+
+
+
+
+
+    }
+    
+    post {
+    always {
+        echo "Cleaning up..."
+        sh "docker logout || true"
+    }
+    success {
+        echo "Pipeline completed successfully."
+    }
+    failure {
+        echo "Pipeline failed — Check logs."
+    }
+}
+
+    
+}
