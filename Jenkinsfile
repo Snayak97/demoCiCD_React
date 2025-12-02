@@ -206,7 +206,7 @@ pipeline {
         
         stage('Docker Login') {
             steps {
-        script {
+                script {
             echo "========== DOCKER LOGIN START =========="
             try {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
@@ -225,12 +225,65 @@ pipeline {
                 error("Stopping pipeline — Docker Login stage failed.")
             }
             echo "========== DOCKER LOGIN END =========="
+                }
+            }
         }
-    }
+
+        stage('Check Docker Image Existence') {
+            steps {
+                script {
+            echo "========== CHECK DOCKER IMAGE START =========="
+
+            try {
+                if (!env.VERSION) {
+                    error("VERSION is not set. Cannot check Docker image existence.")
+                }
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_PASS'
+                    )
+                ]) {
+
+                    def response = sh(
+                        script: """
+                            TOKEN=\$(curl -s -H "Content-Type: application/json" \
+                                -X POST -d '{"username":"$DOCKERHUB_USER","password":"$DOCKERHUB_PASS"}' \
+                                https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+                            curl -s -H "Authorization: JWT \$TOKEN" \
+                                https://hub.docker.com/v2/repositories/${env.DOCKERHUB_REPO}/tags/${env.VERSION}/ \
+                                | jq -r .name
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    if (response == env.VERSION) {
+                        echo "Image already exists on DockerHub: ${env.DOCKERHUB_REPO}:${env.VERSION}"
+                        env.SKIP_DOCKER_BUILD = "true"
+                    } else {
+                        echo "Image does NOT exist. Will build."
+                        env.SKIP_DOCKER_BUILD = "false"
+                    }
+                }
+
+            } catch (err) {
+                echo "Error checking Docker image: ${err}"
+                echo "Proceeding with image build."
+                env.SKIP_DOCKER_BUILD = "false"
+            }
+
+            echo "========== CHECK DOCKER IMAGE END =========="
+            }
+            }
         }
+
+
         stage('Docker Build') {
-    steps {
-        script {
+            steps {
+            script {
             echo "========== DOCKER BUILD START =========="
             try {
                 sh """
@@ -256,49 +309,10 @@ pipeline {
                 error("Stopping pipeline — Docker Build stage failed.")
             }
             echo "========== DOCKER BUILD END =========="
-        }
-    }
-}
-        stage('Check Docker Image Existence') {
-    steps {
-        script {
-            echo "========== CHECK DOCKER IMAGE START =========="
-            try {
-                if (!env.VERSION) {
-                    error("VERSION is not set. Cannot check image existence.")
                 }
-
-                
-                def response = sh(
-                    script: """
-                        TOKEN=\$(curl -s -H "Content-Type: application/json" \
-                            -X POST -d '{"username":"$DOCKERHUB_USER","password":"$DOCKERHUB_PASS"}' \
-                            https://hub.docker.com/v2/users/login/ | jq -r .token)
-
-                        curl -s -H "Authorization: JWT \$TOKEN" \
-                            https://hub.docker.com/v2/repositories/${DOCKERHUB_REPO}/tags/${env.VERSION}/ | jq -r .name
-                    """,
-                    returnStdout: true
-                ).trim()
-
-                if (response == env.VERSION) {
-                    echo "Docker image ${DOCKERHUB_REPO}:${env.VERSION} already exists. Skipping build?"
-                    
-                    env.SKIP_DOCKER_BUILD = "true"
-                } else {
-                    echo "Docker image ${DOCKERHUB_REPO}:${env.VERSION} does not exist. Will build."
-                    env.SKIP_DOCKER_BUILD = "false"
-                }
-
-            } catch (err) {
-                echo "Error checking Docker image existence: ${err}"
-                echo "Proceeding with Docker build."
-                env.SKIP_DOCKER_BUILD = "false"
             }
-            echo "========== CHECK DOCKER IMAGE END =========="
         }
-    }
-}
+    
 
 
 
