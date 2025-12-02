@@ -325,15 +325,3 @@ pipeline {
     }
     
 }
-post {
-    always {
-        sh "docker logout || true"
-        archiveArtifacts artifacts: '**/dist/**', allowEmptyArchive: true
-    }
-    success {
-        echo "✅ Pipeline completed successfully!"
-    }
-    failure {
-        echo "❌ Pipeline failed - check logs"
-    }
-}
