@@ -211,7 +211,7 @@ pipeline {
     }
         }
         
-        stage('Docker Login') {
+        // stage('Docker Login') {
             steps {
                 script {
             echo "========== DOCKER LOGIN START =========="
