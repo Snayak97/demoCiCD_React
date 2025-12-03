@@ -185,11 +185,11 @@ pipeline {
         }
     }
         }
-        stage("unit test"){
-            steps{
-                echo "unit test running"
-            }
-        }
+        // stage("unit test"){
+        //     steps{
+        //         echo "unit test running"
+        //     }
+        // }
          stage('Build React App') {
                 steps {
             script {
