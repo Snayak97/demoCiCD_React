@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  react-app:
+    image: ${DOCKERHUB_REPO}:${VERSION}
+    container_name: ${CONTAINER_NAME}
+    ports:
+      - "${HOST_PORT}:80"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
