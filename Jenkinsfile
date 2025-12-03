@@ -123,13 +123,13 @@ pipeline {
         }
         stage('Set Version') {
             steps {
-        script {
+                script {
             // Get latest short commit hash
             def gitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
             env.VERSION = "${env.BUILD_NUMBER}-${gitHash}"
             echo "VERSION set to: ${env.VERSION}"
-        }
-    }
+            }
+            }
         }
 
         stage('Debug Workspace') {
@@ -185,11 +185,11 @@ pipeline {
         }
     }
         }
-        stage("unit test"){
-            steps{
-                echo "unit test running"
-            }
-        }
+        // stage("unit test"){
+        //     steps{
+        //         echo "unit test running"
+        //     }
+        // }
         // stage('Build React App') {
                 steps {
             script {
